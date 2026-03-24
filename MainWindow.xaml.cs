@@ -1,0 +1,59 @@
+<Window x:Class="LTDHelper.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LTDHelper - Limited Auto Buyer"
+        Height="200"
+        Width="400"
+        WindowStartupLocation="CenterScreen"
+        Background="#F0F0F0"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStyle="ToolWindow">
+    <Grid>
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="LTDHelper" 
+                       FontSize="20" 
+                       FontWeight="Bold" 
+                       Foreground="#333333"
+                       TextAlignment="Center"
+                       Margin="0,0,0,10"/>
+            <TextBlock Text="Extension is running..." 
+                       FontSize="12" 
+                       Foreground="#666666"
+                       TextAlignment="Center"
+                       Margin="0,0,0,20"/>
+            <TextBlock Text="Open Habbo chat to use commands:" 
+                       FontSize="11" 
+                       Foreground="#888888"
+                       TextAlignment="Center"
+                       Margin="0,0,0,5"/>
+            <TextBlock Text="/start - Begin auto-buying" 
+                       FontSize="10" 
+                       Foreground="#999999"
+                       TextAlignment="Left"
+                       Margin="20,0,0,2"/>
+            <TextBlock Text="/stop - Stop auto-buying" 
+                       FontSize="10" 
+                       Foreground="#999999"
+                       TextAlignment="Left"
+                       Margin="20,0,0,2"/>
+            <TextBlock Text="/force - Force buy now" 
+                       FontSize="10" 
+                       Foreground="#999999"
+                       TextAlignment="Left"
+                       Margin="20,0,0,2"/>
+            <TextBlock Text="/test - Test mode" 
+                       FontSize="10" 
+                       Foreground="#999999"
+                       TextAlignment="Left"
+                       Margin="20,0,0,10"/>
+            <Button Content="Close" 
+                    Click="CloseButton_Click"
+                    Height="30"
+                    Margin="0,10,0,0"
+                    Background="#4CAF50"
+                    Foreground="White"
+                    FontSize="12"/>
+        </StackPanel>
+    </Grid>
+</Window>
