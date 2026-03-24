@@ -1,22 +1,19 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.Tasks;
 using System.Windows;
-using Geode.Extension;
-using Geode.Habbo.Packages;
 using Geode.Network;
 
 namespace LTDHelper;
 
 /// <summary>
-/// Main window for the LTDHelper application
-/// Handles the Geode extension connection and auto-buying logic
+/// Main window for the LTDHelper application.
+/// Handles the G-Earth extension connection and auto-buying logic
+/// using G-Earth-Geode 1.4.1-beta.
 /// </summary>
 public partial class MainWindow : Window
 {
-    private GeodeExtension? _extension;
-    private ConsoleBot? _consoleBot;
+    private LTDExtension? _extension;
     private int _currentLanguageInt = 0;
     private bool _taskStarted = false;
     private bool _taskBlocked = false;
@@ -34,20 +31,15 @@ public partial class MainWindow : Window
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        Visibility = Visibility.Hidden;
-        ShowInTaskbar = false;
         DetectLanguage();
         try
         {
-            _extension = new GeodeExtension("LTDHelper", "Geode examples.", "Lilith");
-            _extension.OnDataInterceptEvent += Extension_OnDataInterceptEvent;
+            _extension = new LTDExtension();
+            _extension.OnDataIntercepted += Extension_OnDataIntercepted;
             _extension.OnCriticalErrorEvent += Extension_OnCriticalErrorEvent;
-            _extension.Start();
+            _extension.OnConnectedEvent += Extension_OnConnected;
 
-            _consoleBot = new ConsoleBot(_extension, "LTDHelper");
-            _consoleBot.OnBotLoaded += ConsoleBot_OnBotLoaded;
-            _consoleBot.OnMessageReceived += ConsoleBot_OnMessageReceived;
-            _consoleBot.ShowBot();
+            Log("Extension initialized. Waiting for G-Earth connection…");
         }
         catch (Exception ex)
         {
@@ -66,13 +58,19 @@ public partial class MainWindow : Window
             _currentLanguageInt = 0;
     }
 
-    private void BotWelcome()
+    /// <summary>
+    /// Appends a message to the on-screen log and scrolls to the bottom.
+    /// Thread-safe — may be called from any thread.
+    /// </summary>
+    private void Log(string message)
     {
-        if (_consoleBot == null) return;
-        _consoleBot.BotSendMessage(AppTranslator.WelcomeMessage[_currentLanguageInt]);
-        _consoleBot.BotSendMessage(AppTranslator.BuyAdvice[_currentLanguageInt]);
-        _consoleBot.BotSendMessage(AppTranslator.RiskAdvice[_currentLanguageInt]);
-        _consoleBot.BotSendMessage(AppTranslator.FullCommandsList[_currentLanguageInt]);
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => Log(message));
+            return;
+        }
+        LogBox.AppendText($"{message}\n");
+        LogBox.ScrollToEnd();
     }
 
     private async Task TryToBuyLTD()
@@ -81,27 +79,29 @@ public partial class MainWindow : Window
         if (!_taskStarted) { _taskCanBeStopped = true; return; }
         try
         {
-            if (_extension == null || _consoleBot == null)
-                throw new InvalidOperationException("Extension or ConsoleBot not initialized");
+            if (_extension == null)
+                throw new InvalidOperationException("Extension not initialized");
+            if (_extension.In == null)
+                throw new InvalidOperationException("Extension not connected to G-Earth");
 
             await Task.Delay(new Random().Next(500, 1000));
-            _extension.SendToServerAsync(_extension.Out.GetCatalogIndex, "NORMAL");
+            await _extension.SendToServerAsync(_extension.Out.GetCatalogIndex, "NORMAL");
             var catalogIndexPacket = await _extension.WaitForPacketAsync(_extension.In.CatalogIndex, 4000);
             if (catalogIndexPacket == null)
                 throw new TimeoutException("Catalog index response timeout");
 
-            _consoleBot.BotSendMessage(AppTranslator.CatalogIndexLoaded[_currentLanguageInt]);
-            var catalogNode = new HCatalogNode(catalogIndexPacket.Packet);
+            Log(AppTranslator.CatalogIndexLoaded[_currentLanguageInt]);
+            var catalogNode = HCatalogNode.FromCatalogIndexPacket(catalogIndexPacket.Packet);
             var categoryNode = FindCatalogCategory(catalogNode.Children, _catalogCategory[_testMode ? 1 : 0]);
             if (categoryNode == null)
                 throw new InvalidOperationException("Could not find catalog category");
 
             await Task.Delay(new Random().Next(500, 1000));
-            _consoleBot.BotSendMessage(AppTranslator.SimulatingPageClick[_currentLanguageInt]);
-            _extension.SendToServerAsync(_extension.Out.GetCatalogPage, categoryNode.PageId, -1, "NORMAL");
+            Log(AppTranslator.SimulatingPageClick[_currentLanguageInt]);
+            await _extension.SendToServerAsync(_extension.Out.GetCatalogPage, categoryNode.PageId, -1, "NORMAL");
             await Task.Delay(new Random().Next(500, 1000));
-            _consoleBot.BotSendMessage(AppTranslator.TryingToBuy[_currentLanguageInt]);
-            _extension.SendToServerAsync(
+            Log(AppTranslator.TryingToBuy[_currentLanguageInt]);
+            await _extension.SendToServerAsync(
                 _extension.Out.PurchaseFromCatalog,
                 categoryNode.PageId,
                 categoryNode.OfferIds[0],
@@ -111,21 +111,22 @@ public partial class MainWindow : Window
             var purchaseOkPacket = await _extension.WaitForPacketAsync(_extension.In.PurchaseOK, 2000);
             if (purchaseOkPacket == null)
                 throw new InvalidOperationException("LTD not purchased!");
-            _consoleBot.BotSendMessage(AppTranslator.PurchaseOK[_currentLanguageInt]);
+            Log(AppTranslator.PurchaseOK[_currentLanguageInt]);
             _ltdsBought++;
-            _consoleBot.BotSendMessage($"[{_ltdsBought}/{_ltdBuyLimit}]");
+            Log($"[{_ltdsBought}/{_ltdBuyLimit}]");
             if (_ltdsBought >= _ltdBuyLimit)
             {
                 _taskBlocked = true;
                 _taskStarted = false;
-                _consoleBot.BotSendMessage("Purchase limit reached (2/2)");
-                _consoleBot.BotSendMessage(AppTranslator.ExitAdvice[_currentLanguageInt]);
+                Log("Purchase limit reached (2/2)");
+                Log(AppTranslator.ExitAdvice[_currentLanguageInt]);
+                UpdateButtonState();
             }
         }
         catch (Exception ex)
         {
-            _consoleBot?.BotSendMessage(AppTranslator.PurchaseFailed[_currentLanguageInt]);
-            _consoleBot?.BotSendMessage($"Error: {ex.Message}");
+            Log(AppTranslator.PurchaseFailed[_currentLanguageInt]);
+            Log($"Error: {ex.Message}");
         }
         finally
         {
@@ -146,115 +147,45 @@ public partial class MainWindow : Window
         return null;
     }
 
-    private void ConsoleBot_OnBotLoaded(string _) => BotWelcome();
+    // -------------------------------------------------------------------------
+    // Extension event handlers
+    // -------------------------------------------------------------------------
 
-    private void ConsoleBot_OnMessageReceived(string message)
+    private void Extension_OnConnected()
     {
-        if (_taskBlocked)
+        Dispatcher.Invoke(() =>
         {
-            _consoleBot?.BotSendMessage(AppTranslator.ExitAdvice[_currentLanguageInt]);
-            return;
-        }
-        var command = message.ToLower().Trim();
-        switch (command)
-        {
-            case "/test":
-            case "/probar":
-            case "/testar":
-                if (!_taskStarted)
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.StartedMessage[_currentLanguageInt]);
-                    _testMode = true;
-                    _taskStarted = true;
-                    _ = TryToBuyLTD();
-                }
-                else
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
-                }
-                break;
-            case "/force":
-            case "/forzar":
-            case "/forçar":
-                if (!_taskBlocked && _taskCanBeStopped)
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.StartedMessage[_currentLanguageInt]);
-                    _testMode = false;
-                    _taskStarted = true;
-                    _ = TryToBuyLTD();
-                }
-                else
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
-                }
-                break;
-            case "/start":
-            case "/iniciar":
-            case "/começar":
-                if (!_taskStarted)
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.StartedMessage[_currentLanguageInt]);
-                    _testMode = false;
-                    _taskStarted = true;
-                }
-                else
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
-                }
-                break;
-            case "/stop":
-            case "/detener":
-            case "/parar":
-                if (_taskStarted)
-                {
-                    if (_taskCanBeStopped)
-                    {
-                        _consoleBot?.BotSendMessage(AppTranslator.StoppedMessage[_currentLanguageInt]);
-                        _taskStarted = false;
-                    }
-                    else
-                    {
-                        _consoleBot?.BotSendMessage(AppTranslator.StopFailed[_currentLanguageInt]);
-                    }
-                }
-                else
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.FullCommandsList[_currentLanguageInt]);
-                }
-                break;
-            case "/exit":
-            case "/salir":
-            case "/sair":
-                _consoleBot?.CustomExitCommand = command;
-                Environment.Exit(0);
-                break;
-            default:
-                if (!_taskStarted)
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.FullCommandsList[_currentLanguageInt]);
-                }
-                else
-                {
-                    _consoleBot?.BotSendMessage(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
-                }
-                break;
-        }
+            StatusLabel.Content = "Connected to G-Earth";
+            StartButton.IsEnabled = true;
+            ForceButton.IsEnabled = true;
+            TestButton.IsEnabled = true;
+        });
+        Log(AppTranslator.WelcomeMessage[_currentLanguageInt]);
+        Log(AppTranslator.BuyAdvice[_currentLanguageInt]);
+        Log(AppTranslator.RiskAdvice[_currentLanguageInt]);
+        Log(AppTranslator.FullCommandsList[_currentLanguageInt]);
     }
 
-    private void Extension_OnDataInterceptEvent(DataInterceptedEventArgs e)
+    private void Extension_OnDataIntercepted(DataInterceptedEventArgs e)
     {
-        if (_extension == null || _consoleBot == null)
+        if (_extension?.In == null)
             return;
-        if ((_extension.In.ErrorReport.Match(e) ||
-             _extension.In.PurchaseError.Match(e) ||
-             _extension.In.PurchaseNotAllowed.Match(e) ||
-             _extension.In.NotEnoughBalance.Match(e)) && _taskStarted)
+
+        // Block error/purchase-failure packets when a task is in progress.
+        if (_taskStarted && PacketMatchesAny(e, _extension.In.ErrorReport,
+                _extension.In.PurchaseError,
+                _extension.In.PurchaseNotAllowed,
+                _extension.In.NotEnoughBalance))
         {
             e.IsBlocked = true;
         }
-        if (_extension.In.CatalogPublished.Match(e) && _taskStarted && _taskCanBeStopped && !_taskBlocked)
+
+        // Trigger auto-buy on catalog update.
+        if (_extension.In.CatalogPublished != null
+                && e.Packet.Id == _extension.In.CatalogPublished.Id
+                && _taskStarted && _taskCanBeStopped && !_taskBlocked)
         {
-            _consoleBot.BotSendMessage(AppTranslator.CatalogUpdateReceived[_currentLanguageInt]);
+            Log(AppTranslator.CatalogUpdateReceived[_currentLanguageInt]);
             _testMode = false;
             _ = TryToBuyLTD();
         }
@@ -265,23 +196,138 @@ public partial class MainWindow : Window
         ShowCriticalError(error);
     }
 
-    private void ShowCriticalError(string message)
+    // -------------------------------------------------------------------------
+    // Button click handlers
+    // -------------------------------------------------------------------------
+
+    private void StartButton_Click(object sender, RoutedEventArgs e)
     {
-        Visibility = Visibility.Visible;
-        ShowInTaskbar = true;
-        Activate();
-        MessageBox.Show(
-            $"{message}",
-            "Critical Error",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error
-        );
-        Environment.Exit(0);
+        if (_taskBlocked)
+        {
+            Log(AppTranslator.ExitAdvice[_currentLanguageInt]);
+            return;
+        }
+        if (!_taskStarted)
+        {
+            Log(AppTranslator.StartedMessage[_currentLanguageInt]);
+            _testMode = false;
+            _taskStarted = true;
+            UpdateButtonState();
+        }
+        else
+        {
+            Log(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
+        }
+    }
+
+    private void StopButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_taskStarted)
+        {
+            if (_taskCanBeStopped)
+            {
+                Log(AppTranslator.StoppedMessage[_currentLanguageInt]);
+                _taskStarted = false;
+                UpdateButtonState();
+            }
+            else
+            {
+                Log(AppTranslator.StopFailed[_currentLanguageInt]);
+            }
+        }
+        else
+        {
+            Log(AppTranslator.FullCommandsList[_currentLanguageInt]);
+        }
+    }
+
+    private void ForceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_taskBlocked)
+        {
+            Log(AppTranslator.ExitAdvice[_currentLanguageInt]);
+            return;
+        }
+        if (_taskCanBeStopped)
+        {
+            Log(AppTranslator.StartedMessage[_currentLanguageInt]);
+            _testMode = false;
+            _taskStarted = true;
+            UpdateButtonState();
+            _ = TryToBuyLTD();
+        }
+        else
+        {
+            Log(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
+        }
+    }
+
+    private void TestButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_taskBlocked)
+        {
+            Log(AppTranslator.ExitAdvice[_currentLanguageInt]);
+            return;
+        }
+        if (!_taskStarted)
+        {
+            Log(AppTranslator.StartedMessage[_currentLanguageInt]);
+            _testMode = true;
+            _taskStarted = true;
+            UpdateButtonState();
+            _ = TryToBuyLTD();
+        }
+        else
+        {
+            Log(AppTranslator.ReducedCommandsList[_currentLanguageInt]);
+        }
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
         Close();
         Environment.Exit(0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private void UpdateButtonState()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            StartButton.IsEnabled = !_taskStarted && !_taskBlocked;
+            StopButton.IsEnabled = _taskStarted;
+            ForceButton.IsEnabled = !_taskBlocked && _taskCanBeStopped;
+            TestButton.IsEnabled = !_taskStarted && !_taskBlocked;
+        });
+    }
+
+    private static bool PacketMatchesAny(DataInterceptedEventArgs e, params Geode.Habbo.Messages.HMessage?[] messages)
+    {
+        foreach (var m in messages)
+        {
+            if (m != null && e.Packet.Id == m.Id)
+                return true;
+        }
+        return false;
+    }
+
+    private void ShowCriticalError(string message)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            Visibility = Visibility.Visible;
+            ShowInTaskbar = true;
+            Activate();
+            MessageBox.Show(
+                message,
+                "Critical Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error
+            );
+            Environment.Exit(0);
+        });
     }
 }
