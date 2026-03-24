@@ -1,56 +1,31 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
+using Geode;
 
 namespace LTDHelper
 {
     public partial class MainWindow : Window
     {
-        private GeodeExtension geodeExtension;
-        private ConsoleBot consoleBot;
-        private LanguageDetector languageDetector;
-        private TaskManager taskManager;
-
         public MainWindow()
         {
             InitializeComponent();
-            InitializeComponents();
         }
 
-        private void InitializeComponents()
+        private void TryToBuyLTD()
         {
-            geodeExtension = new GeodeExtension();
-            consoleBot = new ConsoleBot();
-            languageDetector = new LanguageDetector();
-            taskManager = new TaskManager();
+            // Implement the logic for buying LTD
         }
 
-        private void BuyLTD()
+        // Command handling methods
+        private void HandleCommand(string command)
         {
-            // Logic for buying LTD
-            Task.Run(() =>
+            switch (command)
             {
-                // Auto-buying logic here
-            });
-        }
-
-        private void HandleCommands(string command)
-        {
-            // Command handling logic
-            if (command.StartsWith("buy"))
-            {
-                BuyLTD();
+                case "buy":
+                    TryToBuyLTD();
+                    break;
+                // Add more commands as needed
             }
-        }
-
-        private void InterceptDataPackets()
-        {
-            // Logic for intercepting data packets
         }
     }
 }
